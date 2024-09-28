@@ -1,10 +1,9 @@
 #![recursion_limit = "256"]
 
 use macroquad::prelude::{
-    clear_background, draw_circle, draw_line, draw_text, is_key_down, is_key_pressed,
-    is_mouse_button_down, mouse_position, next_frame, screen_height, screen_width, set_fullscreen,
-    u16vec2, vec2, BVec4, Conf, KeyCode, MouseButton, U16Vec2, Vec2, BLACK, DARKGREEN, ORANGE,
-    WHITE, YELLOW,
+    clear_background, draw_circle, draw_line, is_key_down, is_key_pressed, is_mouse_button_down,
+    mouse_position, next_frame, screen_height, screen_width, set_fullscreen, u16vec2, vec2, BVec4,
+    Conf, KeyCode, MouseButton, U16Vec2, Vec2, BLACK, DARKGREEN, WHITE, YELLOW,
 };
 use rand::prelude::IteratorRandom;
 use rand::prelude::SliceRandom;
@@ -12,6 +11,7 @@ use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
 const CELLS_ROWS: usize = 30;
+const WALL_WIDTH: f32 = 5.0;
 
 static CELLS_COLUMNS: LazyLock<usize> =
     LazyLock::new(|| (CELLS_ROWS as f32 * (screen_width() / screen_height())) as usize);
@@ -22,8 +22,6 @@ static CELL_SIZE: LazyLock<Vec2> = LazyLock::new(|| {
         screen_height() / CELLS_ROWS as f32,
     )
 });
-
-const COINS_N: usize = 0;
 
 #[derive(Clone, Default, Debug)]
 struct Cell {
@@ -37,12 +35,6 @@ struct Cells {
 }
 
 struct Player {
-    pos: U16Vec2,
-    coins_collected: u64,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct Coin {
     pos: U16Vec2,
 }
 
@@ -77,9 +69,7 @@ impl Cells {
         neighbors
     }
 
-    fn add_wall(&mut self) -> (U16Vec2, U16Vec2) {
-        let mut rng = StdRng::from_rng(&mut thread_rng()).unwrap();
-
+    fn add_wall(&mut self, rng: &mut StdRng) -> (U16Vec2, U16Vec2) {
         let random_pos = u16vec2(
             rng.gen_range(0..*CELLS_COLUMNS as u16),
             rng.gen_range(0..CELLS_ROWS as u16),
@@ -106,7 +96,7 @@ impl Cells {
             }
         });
 
-        let random_neighbor = *filtered_neighbors.choose(&mut thread_rng()).unwrap();
+        let random_neighbor = *filtered_neighbors.choose(rng).unwrap();
 
         if random_neighbor.y > random_pos.y {
             self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
@@ -191,11 +181,11 @@ impl Cells {
         }
     }
 
-    fn build(&mut self, pos: U16Vec2) {
+    fn build(&mut self, pos: U16Vec2, rng: &mut StdRng) {
         self.cells[pos.y as usize][pos.x as usize].visited = true;
 
         let mut neighbors = self.get_neighbors(pos);
-        neighbors.shuffle(&mut thread_rng());
+        neighbors.shuffle(rng);
 
         for neighbor in neighbors {
             if self.cells[neighbor.y as usize][neighbor.x as usize].visited {
@@ -216,12 +206,12 @@ impl Cells {
                 self.cells[pos.y as usize][pos.x as usize].walls.x = false;
             }
 
-            self.build(neighbor);
+            self.build(neighbor, rng);
         }
     }
 
     fn get_path(&self, lhs: U16Vec2, rhs: U16Vec2) -> Vec<U16Vec2> {
-        let mut have_been_here = vec![vec![false; *CELLS_COLUMNS]; CELLS_ROWS];
+        let mut have_been_here = HashSet::new();
         let mut correct_path = Vec::new();
 
         self.recursive_get_path(lhs, rhs, &mut have_been_here, &mut correct_path);
@@ -233,7 +223,7 @@ impl Cells {
         &self,
         lhs: U16Vec2,
         rhs: U16Vec2,
-        have_been_here: &mut Vec<Vec<bool>>,
+        have_been_here: &mut HashSet<U16Vec2>,
         correct_path: &mut Vec<U16Vec2>,
     ) -> bool {
         if lhs == rhs {
@@ -241,11 +231,11 @@ impl Cells {
             return true;
         }
 
-        if have_been_here[lhs.y as usize][lhs.x as usize] {
+        if have_been_here.contains(&lhs) {
             return false;
         }
 
-        have_been_here[lhs.y as usize][lhs.x as usize] = true;
+        have_been_here.insert(lhs);
 
         for neighbor in self.get_neighbors(lhs) {
             if if lhs.x > neighbor.x {
@@ -268,6 +258,27 @@ impl Cells {
 
         false
     }
+
+    fn change_wall(&mut self, rng: &mut StdRng) {
+        let new_wall = self.add_wall(rng);
+        let shore = self.collect_lake_shore(&new_wall);
+
+        let (pos, neighbor) = shore.iter().choose(rng).unwrap();
+
+        if neighbor.y > pos.y {
+            self.cells[neighbor.y as usize][neighbor.x as usize].walls.w = false;
+            self.cells[pos.y as usize][pos.x as usize].walls.z = false;
+        } else if neighbor.y < pos.y {
+            self.cells[neighbor.y as usize][neighbor.x as usize].walls.z = false;
+            self.cells[pos.y as usize][pos.x as usize].walls.w = false;
+        } else if neighbor.x > pos.x {
+            self.cells[neighbor.y as usize][neighbor.x as usize].walls.x = false;
+            self.cells[pos.y as usize][pos.x as usize].walls.y = false;
+        } else {
+            self.cells[neighbor.y as usize][neighbor.x as usize].walls.y = false;
+            self.cells[pos.y as usize][pos.x as usize].walls.x = false;
+        }
+    }
 }
 
 #[macroquad::main(window_conf)]
@@ -280,20 +291,7 @@ async fn main() {
 
     let mut rng = StdRng::from_rng(&mut thread_rng()).unwrap();
 
-    let mut player = Player {
-        pos: U16Vec2::ZERO,
-        coins_collected: 0,
-    };
-    let mut coins = HashSet::with_capacity(COINS_N);
-
-    for _ in 0..COINS_N {
-        coins.insert(Coin {
-            pos: u16vec2(
-                rng.gen_range(0..*CELLS_COLUMNS as u16 - 1),
-                rng.gen_range(0..CELLS_ROWS as u16 - 1),
-            ),
-        });
-    }
+    let mut player = Player { pos: U16Vec2::ZERO };
 
     let mut cells = Cells {
         cells: vec![
@@ -308,15 +306,14 @@ async fn main() {
         ],
     };
 
-    cells.build(U16Vec2::new(1, 1));
+    cells.build(U16Vec2::ZERO, &mut rng);
 
-    let mut path;
+    let mut path = cells.get_path(
+        player.pos,
+        u16vec2(*CELLS_COLUMNS as u16 - 1, CELLS_ROWS as u16 - 1),
+    );
+
     loop {
-        path = cells.get_path(
-            player.pos,
-            u16vec2(*CELLS_COLUMNS as u16 - 1, CELLS_ROWS as u16 - 1),
-        );
-
         if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) {
             if player.pos.x > 0
                 && !cells.cells[player.pos.y as usize][player.pos.x as usize]
@@ -371,7 +368,12 @@ async fn main() {
                 ],
             };
 
-            cells.build(U16Vec2::ZERO);
+            cells.build(U16Vec2::ZERO, &mut rng);
+
+            path = cells.get_path(
+                player.pos,
+                u16vec2(*CELLS_COLUMNS as u16 - 1, CELLS_ROWS as u16 - 1),
+            );
         }
 
         if is_mouse_button_down(MouseButton::Left) {
@@ -390,7 +392,7 @@ async fn main() {
                         i as f32 * CELL_SIZE.y,
                         j as f32 * CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y + CELL_SIZE.y,
-                        5.0,
+                        WALL_WIDTH,
                         DARKGREEN,
                     );
                 }
@@ -401,7 +403,7 @@ async fn main() {
                         i as f32 * CELL_SIZE.y,
                         j as f32 * CELL_SIZE.x + CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y + CELL_SIZE.y,
-                        5.0,
+                        WALL_WIDTH,
                         DARKGREEN,
                     );
                 }
@@ -412,7 +414,7 @@ async fn main() {
                         i as f32 * CELL_SIZE.y,
                         j as f32 * CELL_SIZE.x + CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y,
-                        5.0,
+                        WALL_WIDTH,
                         DARKGREEN,
                     );
                 }
@@ -423,7 +425,7 @@ async fn main() {
                         i as f32 * CELL_SIZE.y + CELL_SIZE.y,
                         j as f32 * CELL_SIZE.x + CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y + CELL_SIZE.y,
-                        5.0,
+                        WALL_WIDTH,
                         DARKGREEN,
                     );
                 }
@@ -436,32 +438,6 @@ async fn main() {
             CELL_SIZE.x * 0.4,
             YELLOW,
         );
-
-        draw_text(
-            &format!("{}", player.coins_collected),
-            player.pos.x as f32 * CELL_SIZE.x,
-            player.pos.y as f32 * CELL_SIZE.y,
-            17.0,
-            WHITE,
-        );
-
-        for coin in &coins {
-            draw_circle(
-                coin.pos.x as f32 * CELL_SIZE.x + CELL_SIZE.x / 2.0,
-                coin.pos.y as f32 * CELL_SIZE.y + CELL_SIZE.y / 2.0,
-                CELL_SIZE.x * 0.2,
-                ORANGE,
-            );
-        }
-
-        coins.retain(|coin| {
-            if coin.pos == player.pos {
-                player.coins_collected += 1;
-                false
-            } else {
-                true
-            }
-        });
 
         for (pos_index, pos) in path.iter().enumerate() {
             if let Some(next_pos) = path.get(pos_index + 1) {
@@ -477,32 +453,12 @@ async fn main() {
         }
 
         if rng.gen_range(0.0..1.0) >= 0.0 {
-            let new_wall = cells.add_wall();
-            let shore = cells.collect_lake_shore(&new_wall);
+            cells.change_wall(&mut rng);
 
-            let (pos, neighbor) = shore.iter().choose(&mut thread_rng()).unwrap();
-
-            if neighbor.y > pos.y {
-                cells.cells[neighbor.y as usize][neighbor.x as usize]
-                    .walls
-                    .w = false;
-                cells.cells[pos.y as usize][pos.x as usize].walls.z = false;
-            } else if neighbor.y < pos.y {
-                cells.cells[neighbor.y as usize][neighbor.x as usize]
-                    .walls
-                    .z = false;
-                cells.cells[pos.y as usize][pos.x as usize].walls.w = false;
-            } else if neighbor.x > pos.x {
-                cells.cells[neighbor.y as usize][neighbor.x as usize]
-                    .walls
-                    .x = false;
-                cells.cells[pos.y as usize][pos.x as usize].walls.y = false;
-            } else {
-                cells.cells[neighbor.y as usize][neighbor.x as usize]
-                    .walls
-                    .y = false;
-                cells.cells[pos.y as usize][pos.x as usize].walls.x = false;
-            }
+            path = cells.get_path(
+                player.pos,
+                u16vec2(*CELLS_COLUMNS as u16 - 1, CELLS_ROWS as u16 - 1),
+            );
         }
 
         next_frame().await;
