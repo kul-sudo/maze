@@ -10,6 +10,8 @@ use rand::prelude::SliceRandom;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
+const WALL_CHANGE_CHANCE: f32 = 1.0;
+
 const CELLS_ROWS: usize = 30;
 const WALL_WIDTH: f32 = 5.0;
 
@@ -69,6 +71,7 @@ impl Cells {
         neighbors
     }
 
+    /// The function adds a new wall between 2 random cells.
     fn add_wall(&mut self, rng: &mut StdRng) -> (U16Vec2, U16Vec2) {
         let random_pos = u16vec2(
             rng.gen_range(0..*CELLS_COLUMNS as u16),
@@ -77,6 +80,7 @@ impl Cells {
 
         let neighbors = self.get_neighbors(random_pos);
         let filtered_neighbors = neighbors.iter().filter(|neighbor| {
+            // Exclude the neighbors that already have a wall depending on the position
             !if random_pos.x > neighbor.x {
                 self.cells[random_pos.y as usize][random_pos.x as usize]
                     .walls
@@ -98,6 +102,7 @@ impl Cells {
 
         let random_neighbor = *filtered_neighbors.choose(rng).unwrap();
 
+        // Add the wall
         if random_neighbor.y > random_pos.y {
             self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
                 .walls
@@ -131,6 +136,7 @@ impl Cells {
         (random_pos, random_neighbor)
     }
 
+    /// The function collects the neighbors on the border of a self.lake().
     fn collect_lake_shore(&self, new_wall: &(U16Vec2, U16Vec2)) -> HashSet<(U16Vec2, U16Vec2)> {
         let mut lake_shore = HashSet::new();
 
@@ -149,6 +155,8 @@ impl Cells {
         lake_shore
     }
 
+    /// The function gets the cells of one of the 2 possible lakes of a non-perfect maze.
+    /// It doesn't matter which one to get.
     fn lake(&self) -> HashSet<U16Vec2> {
         let mut lake_cells = HashSet::new();
 
@@ -181,6 +189,7 @@ impl Cells {
         }
     }
 
+    /// The function builds the maze.
     fn build(&mut self, pos: U16Vec2, rng: &mut StdRng) {
         self.cells[pos.y as usize][pos.x as usize].visited = true;
 
@@ -259,6 +268,7 @@ impl Cells {
         false
     }
 
+    /// The function combines all the operations needed for changing a wall.
     fn change_wall(&mut self, rng: &mut StdRng) {
         let new_wall = self.add_wall(rng);
         let shore = self.collect_lake_shore(&new_wall);
@@ -289,10 +299,13 @@ async fn main() {
         next_frame().await;
     }
 
+    // Rng
     let mut rng = StdRng::from_rng(&mut thread_rng()).unwrap();
 
+    // Player
     let mut player = Player { pos: U16Vec2::ZERO };
 
+    // Cells
     let mut cells = Cells {
         cells: vec![
             vec![
@@ -308,50 +321,48 @@ async fn main() {
 
     cells.build(U16Vec2::ZERO, &mut rng);
 
+    // Path
     let mut path = cells.get_path(
         player.pos,
         u16vec2(*CELLS_COLUMNS as u16 - 1, CELLS_ROWS as u16 - 1),
     );
 
     loop {
-        if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) {
-            if player.pos.x > 0
-                && !cells.cells[player.pos.y as usize][player.pos.x as usize]
-                    .walls
-                    .x
-            {
-                player.pos.x -= 1;
-            }
+        // Interactions
+        if (is_key_down(KeyCode::A) || is_key_down(KeyCode::Left))
+            && player.pos.x > 0
+            && !cells.cells[player.pos.y as usize][player.pos.x as usize]
+                .walls
+                .x
+        {
+            player.pos.x -= 1;
         }
 
-        if is_key_down(KeyCode::D) || is_key_down(KeyCode::Right) {
-            if player.pos.x < *CELLS_COLUMNS as u16 - 1
-                && !cells.cells[player.pos.y as usize][player.pos.x as usize]
-                    .walls
-                    .y
-            {
-                player.pos.x += 1;
-            }
+        if (is_key_down(KeyCode::D) || is_key_down(KeyCode::Right))
+            && player.pos.x < *CELLS_COLUMNS as u16 - 1
+            && !cells.cells[player.pos.y as usize][player.pos.x as usize]
+                .walls
+                .y
+        {
+            player.pos.x += 1;
         }
 
-        if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) {
-            if player.pos.y > 0
-                && !cells.cells[player.pos.y as usize][player.pos.x as usize]
-                    .walls
-                    .w
-            {
-                player.pos.y -= 1;
-            }
+        if (is_key_down(KeyCode::W) || is_key_down(KeyCode::Up))
+            && player.pos.y > 0
+            && !cells.cells[player.pos.y as usize][player.pos.x as usize]
+                .walls
+                .w
+        {
+            player.pos.y -= 1;
         }
 
-        if is_key_down(KeyCode::S) || is_key_down(KeyCode::Down) {
-            if player.pos.y < CELLS_ROWS as u16 - 1
-                && !cells.cells[player.pos.y as usize][player.pos.x as usize]
-                    .walls
-                    .z
-            {
-                player.pos.y += 1;
-            }
+        if (is_key_down(KeyCode::S) || is_key_down(KeyCode::Down))
+            && player.pos.y < CELLS_ROWS as u16 - 1
+            && !cells.cells[player.pos.y as usize][player.pos.x as usize]
+                .walls
+                .z
+        {
+            player.pos.y += 1;
         }
 
         if is_key_pressed(KeyCode::Space) {
@@ -382,6 +393,7 @@ async fn main() {
             player.pos = u16vec2((x / CELL_SIZE.x) as u16, (y / CELL_SIZE.y) as u16);
         }
 
+        // Drawing
         for i in 0..cells.cells.len() {
             for j in 0..cells.cells[i].len() {
                 let cell = &mut cells.cells[i][j];
@@ -452,7 +464,14 @@ async fn main() {
             }
         }
 
-        if rng.gen_range(0.0..1.0) >= 0.0 {
+        next_frame().await;
+
+        clear_background(BLACK);
+
+        // Change walls in needed
+        if WALL_CHANGE_CHANCE > 0.0
+            && (WALL_CHANGE_CHANCE == 1.0 || rng.gen_range(0.0..1.0) <= WALL_CHANGE_CHANCE)
+        {
             cells.change_wall(&mut rng);
 
             path = cells.get_path(
@@ -460,9 +479,5 @@ async fn main() {
                 u16vec2(*CELLS_COLUMNS as u16 - 1, CELLS_ROWS as u16 - 1),
             );
         }
-
-        next_frame().await;
-
-        clear_background(BLACK);
     }
 }
