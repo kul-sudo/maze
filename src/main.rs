@@ -1,11 +1,15 @@
+#![recursion_limit = "256"]
+
 use macroquad::prelude::{
-    clear_background, draw_circle, draw_line, is_key_down, is_key_pressed, is_mouse_button_down,
-    mouse_position, next_frame, screen_height, screen_width, set_fullscreen, u16vec2, vec2, BVec4,
-    Conf, KeyCode, MouseButton, U16Vec2, Vec2, BLACK, DARKGREEN, ORANGE, YELLOW,
+    clear_background, draw_circle, draw_line, draw_text, is_key_down, is_key_pressed,
+    is_mouse_button_down, mouse_position, next_frame, screen_height, screen_width, set_fullscreen,
+    u16vec2, vec2, BVec4, Conf, KeyCode, MouseButton, U16Vec2, Vec2, BLACK, DARKGREEN, ORANGE,
+    WHITE, YELLOW,
 };
+use rand::prelude::IteratorRandom;
 use rand::prelude::SliceRandom;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use std::{sync::LazyLock, time::Duration};
+use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
 const CELLS_ROWS: usize = 30;
 
@@ -19,7 +23,7 @@ static CELL_SIZE: LazyLock<Vec2> = LazyLock::new(|| {
     )
 });
 
-const COINS_N: usize = 10;
+const COINS_N: usize = 0;
 
 #[derive(Clone, Default, Debug)]
 struct Cell {
@@ -34,9 +38,10 @@ struct Cells {
 
 struct Player {
     pos: U16Vec2,
+    coins_collected: u64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct Coin {
     pos: U16Vec2,
 }
@@ -72,6 +77,120 @@ impl Cells {
         neighbors
     }
 
+    fn add_wall(&mut self) -> (U16Vec2, U16Vec2) {
+        let mut rng = StdRng::from_rng(&mut thread_rng()).unwrap();
+
+        let random_pos = u16vec2(
+            rng.gen_range(0..*CELLS_COLUMNS as u16),
+            rng.gen_range(0..CELLS_ROWS as u16),
+        );
+
+        let neighbors = self.get_neighbors(random_pos);
+        let filtered_neighbors = neighbors.iter().filter(|neighbor| {
+            !if random_pos.x > neighbor.x {
+                self.cells[random_pos.y as usize][random_pos.x as usize]
+                    .walls
+                    .x
+            } else if random_pos.x < neighbor.x {
+                self.cells[random_pos.y as usize][random_pos.x as usize]
+                    .walls
+                    .y
+            } else if random_pos.y > neighbor.y {
+                self.cells[random_pos.y as usize][random_pos.x as usize]
+                    .walls
+                    .w
+            } else {
+                self.cells[random_pos.y as usize][random_pos.x as usize]
+                    .walls
+                    .z
+            }
+        });
+
+        let random_neighbor = *filtered_neighbors.choose(&mut thread_rng()).unwrap();
+
+        if random_neighbor.y > random_pos.y {
+            self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
+                .walls
+                .w = true;
+            self.cells[random_pos.y as usize][random_pos.x as usize]
+                .walls
+                .z = true;
+        } else if random_neighbor.y < random_pos.y {
+            self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
+                .walls
+                .z = true;
+            self.cells[random_pos.y as usize][random_pos.x as usize]
+                .walls
+                .w = true;
+        } else if random_neighbor.x > random_pos.x {
+            self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
+                .walls
+                .x = true;
+            self.cells[random_pos.y as usize][random_pos.x as usize]
+                .walls
+                .y = true;
+        } else {
+            self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
+                .walls
+                .y = true;
+            self.cells[random_pos.y as usize][random_pos.x as usize]
+                .walls
+                .x = true;
+        }
+
+        (random_pos, random_neighbor)
+    }
+
+    fn collect_lake_shore(&self, new_wall: &(U16Vec2, U16Vec2)) -> HashSet<(U16Vec2, U16Vec2)> {
+        let mut lake_shore = HashSet::new();
+
+        let lake = self.lake();
+
+        for pos in lake.iter() {
+            let neighbors = self.get_neighbors(*pos);
+
+            for neighbor in neighbors {
+                if *new_wall != (*pos, neighbor) && !lake.contains(&neighbor) {
+                    lake_shore.insert((*pos, neighbor));
+                }
+            }
+        }
+
+        lake_shore
+    }
+
+    fn lake(&self) -> HashSet<U16Vec2> {
+        let mut lake_cells = HashSet::new();
+
+        self.lake_recursion(U16Vec2::ZERO, &mut lake_cells);
+
+        lake_cells
+    }
+
+    fn lake_recursion(&self, pos: U16Vec2, lake_cells: &mut HashSet<U16Vec2>) {
+        if lake_cells.contains(&pos) {
+            return;
+        }
+
+        lake_cells.insert(pos);
+
+        for neighbor in self.get_neighbors(pos) {
+            if if pos.x > neighbor.x {
+                self.cells[pos.y as usize][pos.x as usize].walls.x
+            } else if pos.x < neighbor.x {
+                self.cells[pos.y as usize][pos.x as usize].walls.y
+            } else if pos.y > neighbor.y {
+                self.cells[pos.y as usize][pos.x as usize].walls.w
+            } else {
+                self.cells[pos.y as usize][pos.x as usize].walls.z
+            } {
+                continue;
+            }
+
+            self.lake_recursion(neighbor, lake_cells);
+        }
+    }
+
     fn build(&mut self, pos: U16Vec2) {
         self.cells[pos.y as usize][pos.x as usize].visited = true;
 
@@ -100,6 +219,55 @@ impl Cells {
             self.build(neighbor);
         }
     }
+
+    fn get_path(&self, lhs: U16Vec2, rhs: U16Vec2) -> Vec<U16Vec2> {
+        let mut have_been_here = vec![vec![false; *CELLS_COLUMNS]; CELLS_ROWS];
+        let mut correct_path = Vec::new();
+
+        self.recursive_get_path(lhs, rhs, &mut have_been_here, &mut correct_path);
+
+        correct_path
+    }
+
+    fn recursive_get_path(
+        &self,
+        lhs: U16Vec2,
+        rhs: U16Vec2,
+        have_been_here: &mut Vec<Vec<bool>>,
+        correct_path: &mut Vec<U16Vec2>,
+    ) -> bool {
+        if lhs == rhs {
+            correct_path.push(lhs);
+            return true;
+        }
+
+        if have_been_here[lhs.y as usize][lhs.x as usize] {
+            return false;
+        }
+
+        have_been_here[lhs.y as usize][lhs.x as usize] = true;
+
+        for neighbor in self.get_neighbors(lhs) {
+            if if lhs.x > neighbor.x {
+                self.cells[lhs.y as usize][lhs.x as usize].walls.x
+            } else if lhs.x < neighbor.x {
+                self.cells[lhs.y as usize][lhs.x as usize].walls.y
+            } else if lhs.y > neighbor.y {
+                self.cells[lhs.y as usize][lhs.x as usize].walls.w
+            } else {
+                self.cells[lhs.y as usize][lhs.x as usize].walls.z
+            } {
+                continue;
+            }
+
+            if self.recursive_get_path(neighbor, rhs, have_been_here, correct_path) {
+                correct_path.push(lhs);
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 #[macroquad::main(window_conf)]
@@ -112,11 +280,14 @@ async fn main() {
 
     let mut rng = StdRng::from_rng(&mut thread_rng()).unwrap();
 
-    let mut player = Player { pos: U16Vec2::ZERO };
-    let mut coins = Vec::with_capacity(COINS_N);
+    let mut player = Player {
+        pos: U16Vec2::ZERO,
+        coins_collected: 0,
+    };
+    let mut coins = HashSet::with_capacity(COINS_N);
 
     for _ in 0..COINS_N {
-        coins.push(Coin {
+        coins.insert(Coin {
             pos: u16vec2(
                 rng.gen_range(0..*CELLS_COLUMNS as u16 - 1),
                 rng.gen_range(0..CELLS_ROWS as u16 - 1),
@@ -137,9 +308,15 @@ async fn main() {
         ],
     };
 
-    cells.build(U16Vec2::new(0, 0));
+    cells.build(U16Vec2::new(1, 1));
 
+    let mut path;
     loop {
+        path = cells.get_path(
+            player.pos,
+            u16vec2(*CELLS_COLUMNS as u16 - 1, CELLS_ROWS as u16 - 1),
+        );
+
         if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) {
             if player.pos.x > 0
                 && !cells.cells[player.pos.y as usize][player.pos.x as usize]
@@ -200,10 +377,7 @@ async fn main() {
         if is_mouse_button_down(MouseButton::Left) {
             let (x, y) = mouse_position();
 
-            player.pos = u16vec2(
-                (x / CELL_SIZE.x as f32) as u16,
-                (y / CELL_SIZE.y as f32) as u16,
-            );
+            player.pos = u16vec2((x / CELL_SIZE.x) as u16, (y / CELL_SIZE.y) as u16);
         }
 
         for i in 0..cells.cells.len() {
@@ -263,20 +437,72 @@ async fn main() {
             YELLOW,
         );
 
+        draw_text(
+            &format!("{}", player.coins_collected),
+            player.pos.x as f32 * CELL_SIZE.x,
+            player.pos.y as f32 * CELL_SIZE.y,
+            17.0,
+            WHITE,
+        );
+
         for coin in &coins {
             draw_circle(
                 coin.pos.x as f32 * CELL_SIZE.x + CELL_SIZE.x / 2.0,
                 coin.pos.y as f32 * CELL_SIZE.y + CELL_SIZE.y / 2.0,
-                CELL_SIZE.x * 0.4,
+                CELL_SIZE.x * 0.2,
                 ORANGE,
             );
+        }
 
-            draw_circle(
-                coin.pos.x as f32 * CELL_SIZE.x + CELL_SIZE.x / 2.0,
-                coin.pos.y as f32 * CELL_SIZE.y + CELL_SIZE.y / 2.0,
-                CELL_SIZE.x * 0.2,
-                YELLOW,
-            );
+        coins.retain(|coin| {
+            if coin.pos == player.pos {
+                player.coins_collected += 1;
+                false
+            } else {
+                true
+            }
+        });
+
+        for (pos_index, pos) in path.iter().enumerate() {
+            if let Some(next_pos) = path.get(pos_index + 1) {
+                draw_line(
+                    pos.x as f32 * CELL_SIZE.x + CELL_SIZE.x / 2.0,
+                    pos.y as f32 * CELL_SIZE.y + CELL_SIZE.y / 2.0,
+                    next_pos.x as f32 * CELL_SIZE.x + CELL_SIZE.x / 2.0,
+                    next_pos.y as f32 * CELL_SIZE.y + CELL_SIZE.y / 2.0,
+                    5.0,
+                    WHITE,
+                )
+            }
+        }
+
+        if rng.gen_range(0.0..1.0) >= 0.0 {
+            let new_wall = cells.add_wall();
+            let shore = cells.collect_lake_shore(&new_wall);
+
+            let (pos, neighbor) = shore.iter().choose(&mut thread_rng()).unwrap();
+
+            if neighbor.y > pos.y {
+                cells.cells[neighbor.y as usize][neighbor.x as usize]
+                    .walls
+                    .w = false;
+                cells.cells[pos.y as usize][pos.x as usize].walls.z = false;
+            } else if neighbor.y < pos.y {
+                cells.cells[neighbor.y as usize][neighbor.x as usize]
+                    .walls
+                    .z = false;
+                cells.cells[pos.y as usize][pos.x as usize].walls.w = false;
+            } else if neighbor.x > pos.x {
+                cells.cells[neighbor.y as usize][neighbor.x as usize]
+                    .walls
+                    .x = false;
+                cells.cells[pos.y as usize][pos.x as usize].walls.y = false;
+            } else {
+                cells.cells[neighbor.y as usize][neighbor.x as usize]
+                    .walls
+                    .y = false;
+                cells.cells[pos.y as usize][pos.x as usize].walls.x = false;
+            }
         }
 
         next_frame().await;
