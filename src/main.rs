@@ -14,7 +14,7 @@ const DEFAULT_CELLS_AREA: f32 = 53.0 * 30.0;
 
 const WALL_CHANGE_CHANCE: f32 = 1.0;
 
-const CELLS_ROWS: usize = 120;
+const CELLS_ROWS: usize = 80;
 
 static CELLS_COLUMNS: LazyLock<usize> =
     LazyLock::new(|| (CELLS_ROWS as f32 * (screen_width() / screen_height())) as usize);
@@ -465,7 +465,7 @@ async fn main() {
                     pos.y as f32 * CELL_SIZE.y + CELL_SIZE.y / 2.0,
                     next_pos.x as f32 * CELL_SIZE.x + CELL_SIZE.x / 2.0,
                     next_pos.y as f32 * CELL_SIZE.y + CELL_SIZE.y / 2.0,
-                    5.0,
+                    *WALL_WIDTH,
                     WHITE,
                 )
             }
