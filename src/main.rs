@@ -5,8 +5,13 @@ use macroquad::prelude::{
     mouse_position, next_frame, screen_height, screen_width, set_fullscreen, u16vec2, vec2, BVec4,
     Conf, KeyCode, MouseButton, U16Vec2, Vec2, BLACK, DARKGREEN, WHITE, YELLOW,
 };
-use rand::prelude::IteratorRandom;
+
+#[cfg(feature = "mode1")]
+use rand::prelude::{IteratorRandom, SliceRandom};
+
+#[cfg(feature = "mode2")]
 use rand::prelude::SliceRandom;
+
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
