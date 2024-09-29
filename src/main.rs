@@ -19,7 +19,7 @@ const DEFAULT_CELLS_AREA: f32 = 53.0 * 30.0;
 
 const WALL_CHANGE_CHANCE: f32 = 1.0;
 
-const CELLS_ROWS: usize = 3;
+const CELLS_ROWS: usize = 100;
 
 static CELLS_COLUMNS: LazyLock<usize> =
     LazyLock::new(|| (CELLS_ROWS as f32 * (screen_width() / screen_height())) as usize);
@@ -101,11 +101,9 @@ impl Cells {
         let random_neighbor = *filtered_neighbors.choose(rng).unwrap();
 
         // Add the wall
-        self.cells[random_pos.y as usize][random_pos.x as usize].walls
-            [Cells::wall_from_pos(random_pos, random_neighbor)] = true;
-
-        self.cells[random_neighbor.y as usize][random_neighbor.x as usize].walls
-            [Cells::wall_from_pos(random_neighbor, random_pos)] = true;
+        let (lhs_wall, rhs_wall) = Cells::mutual_walls_from_pos(random_pos, random_neighbor);
+        self.cells[random_pos.y as usize][random_pos.x as usize].walls[lhs_wall] = true;
+        self.cells[random_neighbor.y as usize][random_neighbor.x as usize].walls[rhs_wall] = true;
 
         (random_pos, random_neighbor)
     }
@@ -136,22 +134,24 @@ impl Cells {
 
             let path = self.get_path(random_pos, *random_neighbor);
 
-            self.cells[random_pos.y as usize][random_pos.x as usize].walls
-                [Cells::wall_from_pos(random_pos, *random_neighbor)] = false;
-
-            self.cells[random_neighbor.y as usize][random_neighbor.x as usize].walls
-                [Cells::wall_from_pos(*random_neighbor, random_pos)] = false;
+            {
+                let (lhs_wall, rhs_wall) =
+                    Cells::mutual_walls_from_pos(random_pos, *random_neighbor);
+                self.cells[random_pos.y as usize][random_pos.x as usize].walls[lhs_wall] = false;
+                self.cells[random_neighbor.y as usize][random_neighbor.x as usize].walls
+                    [rhs_wall] = false;
+            }
 
             let lhs = rng.gen_range(0..path.len() - 1);
 
             let lhs_cell = path[lhs];
             let rhs_cell = path[lhs + 1];
 
-            self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls
-                [Cells::wall_from_pos(lhs_cell, rhs_cell)] = true;
-
-            self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls
-                [Cells::wall_from_pos(rhs_cell, lhs_cell)] = true;
+            {
+                let (lhs_wall, rhs_wall) = Cells::mutual_walls_from_pos(lhs_cell, rhs_cell);
+                self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls[lhs_wall] = true;
+                self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls[rhs_wall] = true;
+            }
 
             break;
         }
@@ -210,6 +210,12 @@ impl Cells {
         2 * ((lhs.y < rhs.y) as usize + (lhs.x > rhs.x) as usize) + (lhs.x != rhs.x) as usize
     }
 
+    fn mutual_walls_from_pos(lhs: U16Vec2, rhs: U16Vec2) -> (usize, usize) {
+        let lhs_wall = Cells::wall_from_pos(lhs, rhs);
+
+        (lhs_wall, (lhs_wall + 2) % 4)
+    }
+
     /// The function builds the maze.
     fn build(&mut self, pos: U16Vec2, rng: &mut StdRng) {
         self.cells[pos.y as usize][pos.x as usize].visited = true;
@@ -222,11 +228,9 @@ impl Cells {
                 continue;
             }
 
-            self.cells[pos.y as usize][pos.x as usize].walls[Cells::wall_from_pos(pos, neighbor)] =
-                false;
-
-            self.cells[neighbor.y as usize][neighbor.x as usize].walls
-                [Cells::wall_from_pos(neighbor, pos)] = false;
+            let (lhs_wall, rhs_wall) = Cells::mutual_walls_from_pos(pos, neighbor);
+            self.cells[pos.y as usize][pos.x as usize].walls[lhs_wall] = false;
+            self.cells[neighbor.y as usize][neighbor.x as usize].walls[rhs_wall] = false;
 
             self.build(neighbor, rng);
         }
@@ -280,11 +284,9 @@ impl Cells {
 
         let (pos, neighbor) = shore.iter().choose(rng).unwrap();
 
-        self.cells[pos.y as usize][pos.x as usize].walls[Cells::wall_from_pos(*pos, *neighbor)] =
-            false;
-
-        self.cells[neighbor.y as usize][neighbor.x as usize].walls
-            [Cells::wall_from_pos(*neighbor, *pos)] = false;
+        let (lhs_wall, rhs_wall) = Cells::mutual_walls_from_pos(*pos, *neighbor);
+        self.cells[pos.y as usize][pos.x as usize].walls[lhs_wall] = false;
+        self.cells[neighbor.y as usize][neighbor.x as usize].walls[rhs_wall] = false;
     }
 }
 
