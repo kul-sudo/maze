@@ -14,7 +14,7 @@ const DEFAULT_CELLS_AREA: f32 = 53.0 * 30.0;
 
 const WALL_CHANGE_CHANCE: f32 = 1.0;
 
-const CELLS_ROWS: usize = 80;
+const CELLS_ROWS: usize = 20;
 
 static CELLS_COLUMNS: LazyLock<usize> =
     LazyLock::new(|| (CELLS_ROWS as f32 * (screen_width() / screen_height())) as usize);
@@ -78,6 +78,7 @@ impl Cells {
         neighbors
     }
 
+    #[cfg(feature = "mode1")]
     /// The function adds a new wall between 2 random cells.
     fn add_wall(&mut self, rng: &mut StdRng) -> (U16Vec2, U16Vec2) {
         let random_pos = u16vec2(
@@ -143,6 +144,102 @@ impl Cells {
         (random_pos, random_neighbor)
     }
 
+    #[cfg(feature = "mode2")]
+    /// The function adds a new wall between 2 random cells.
+    fn change_wall(&mut self, rng: &mut StdRng) {
+        loop {
+            let random_pos = u16vec2(
+                rng.gen_range(0..*CELLS_COLUMNS as u16),
+                rng.gen_range(0..CELLS_ROWS as u16),
+            );
+
+            let neighbors = self.get_neighbors(random_pos);
+            let filtered_neighbors = neighbors
+                .iter()
+                .filter(|neighbor| {
+                    // Exclude the neighbors that already have a wall depending on the position
+                    if random_pos.x > neighbor.x {
+                        self.cells[random_pos.y as usize][random_pos.x as usize]
+                            .walls
+                            .x
+                    } else if random_pos.x < neighbor.x {
+                        self.cells[random_pos.y as usize][random_pos.x as usize]
+                            .walls
+                            .y
+                    } else if random_pos.y > neighbor.y {
+                        self.cells[random_pos.y as usize][random_pos.x as usize]
+                            .walls
+                            .w
+                    } else {
+                        self.cells[random_pos.y as usize][random_pos.x as usize]
+                            .walls
+                            .z
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            if filtered_neighbors.is_empty() {
+                continue;
+            }
+
+            let random_neighbor = *filtered_neighbors.choose(rng).unwrap();
+
+            let path = self.get_path(random_pos, *random_neighbor);
+
+            if random_neighbor.y > random_pos.y {
+                self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
+                    .walls
+                    .w = false;
+                self.cells[random_pos.y as usize][random_pos.x as usize]
+                    .walls
+                    .z = false;
+            } else if random_neighbor.y < random_pos.y {
+                self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
+                    .walls
+                    .z = false;
+                self.cells[random_pos.y as usize][random_pos.x as usize]
+                    .walls
+                    .w = false;
+            } else if random_neighbor.x > random_pos.x {
+                self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
+                    .walls
+                    .x = false;
+                self.cells[random_pos.y as usize][random_pos.x as usize]
+                    .walls
+                    .y = false;
+            } else {
+                self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
+                    .walls
+                    .y = false;
+                self.cells[random_pos.y as usize][random_pos.x as usize]
+                    .walls
+                    .x = false;
+            }
+
+            let lhs = rng.gen_range(0..path.len() - 1);
+
+            let lhs_cell = path[lhs];
+            let rhs_cell = path[lhs + 1];
+
+            if lhs_cell.y > rhs_cell.y {
+                self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls.w = true;
+                self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls.z = true;
+            } else if lhs_cell.y < rhs_cell.y {
+                self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls.z = true;
+                self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls.w = true;
+            } else if lhs_cell.x > rhs_cell.x {
+                self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls.x = true;
+                self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls.y = true;
+            } else {
+                self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls.y = true;
+                self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls.x = true;
+            }
+
+            break;
+        }
+    }
+
+    #[cfg(feature = "mode1")]
     /// The function collects the neighbors on the border of a self.lake().
     fn collect_lake_shore(&self, new_wall: &(U16Vec2, U16Vec2)) -> HashSet<(U16Vec2, U16Vec2)> {
         let mut lake_shore = HashSet::new();
@@ -162,6 +259,7 @@ impl Cells {
         lake_shore
     }
 
+    #[cfg(feature = "mode1")]
     /// The function gets the cells of one of the 2 possible lakes of a non-perfect maze.
     /// It doesn't matter which one to get.
     fn lake(&self) -> HashSet<U16Vec2> {
@@ -172,6 +270,7 @@ impl Cells {
         lake_cells
     }
 
+    #[cfg(feature = "mode1")]
     fn lake_recursion(&self, pos: U16Vec2, lake_cells: &mut HashSet<U16Vec2>) {
         if lake_cells.contains(&pos) {
             return;
@@ -228,11 +327,9 @@ impl Cells {
 
     fn get_path(&self, lhs: U16Vec2, rhs: U16Vec2) -> Vec<U16Vec2> {
         let mut have_been_here = HashSet::new();
-        let mut correct_path = Vec::new();
 
-        self.recursive_get_path(lhs, rhs, &mut have_been_here, &mut correct_path);
-
-        correct_path
+        self.recursive_get_path(lhs, rhs, &mut have_been_here)
+            .unwrap()
     }
 
     fn recursive_get_path(
@@ -240,15 +337,13 @@ impl Cells {
         lhs: U16Vec2,
         rhs: U16Vec2,
         have_been_here: &mut HashSet<U16Vec2>,
-        correct_path: &mut Vec<U16Vec2>,
-    ) -> bool {
+    ) -> Option<Vec<U16Vec2>> {
         if lhs == rhs {
-            correct_path.push(lhs);
-            return true;
+            return Some(Vec::from([lhs]));
         }
 
         if have_been_here.contains(&lhs) {
-            return false;
+            return None;
         }
 
         have_been_here.insert(lhs);
@@ -266,15 +361,18 @@ impl Cells {
                 continue;
             }
 
-            if self.recursive_get_path(neighbor, rhs, have_been_here, correct_path) {
-                correct_path.push(lhs);
-                return true;
+            if let Some(path) = self.recursive_get_path(neighbor, rhs, have_been_here) {
+                let mut to_return = Vec::from([lhs]);
+                to_return.extend(path);
+
+                return Some(to_return);
             }
         }
 
-        false
+        None
     }
 
+    #[cfg(feature = "mode1")]
     /// The function combines all the operations needed for changing a wall.
     fn change_wall(&mut self, rng: &mut StdRng) {
         let new_wall = self.add_wall(rng);

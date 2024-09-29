@@ -13,3 +13,7 @@ strip = true
 [dependencies]
 macroquad = "0.4.13"
 rand = "0.8.5"
+
+[features]
+mode1 = []
+mode2 = []
