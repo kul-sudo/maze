@@ -10,10 +10,11 @@ use rand::prelude::SliceRandom;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
+const DEFAULT_CELLS_AREA: f32 = 53.0 * 30.0;
+
 const WALL_CHANGE_CHANCE: f32 = 1.0;
 
-const CELLS_ROWS: usize = 30;
-const WALL_WIDTH: f32 = 5.0;
+const CELLS_ROWS: usize = 120;
 
 static CELLS_COLUMNS: LazyLock<usize> =
     LazyLock::new(|| (CELLS_ROWS as f32 * (screen_width() / screen_height())) as usize);
@@ -24,6 +25,12 @@ static CELL_SIZE: LazyLock<Vec2> = LazyLock::new(|| {
         screen_height() / CELLS_ROWS as f32,
     )
 });
+
+static CELLS_AREA: LazyLock<f32> = LazyLock::new(|| *CELLS_COLUMNS as f32 * CELLS_ROWS as f32);
+
+const WALL_WIDTH_CONST: f32 = 5.0;
+static WALL_WIDTH: LazyLock<f32> =
+    LazyLock::new(|| WALL_WIDTH_CONST / (*CELLS_AREA / DEFAULT_CELLS_AREA).powf(1.0 / 3.0));
 
 #[derive(Clone, Default, Debug)]
 struct Cell {
@@ -404,7 +411,7 @@ async fn main() {
                         i as f32 * CELL_SIZE.y,
                         j as f32 * CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y + CELL_SIZE.y,
-                        WALL_WIDTH,
+                        *WALL_WIDTH,
                         DARKGREEN,
                     );
                 }
@@ -415,7 +422,7 @@ async fn main() {
                         i as f32 * CELL_SIZE.y,
                         j as f32 * CELL_SIZE.x + CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y + CELL_SIZE.y,
-                        WALL_WIDTH,
+                        *WALL_WIDTH,
                         DARKGREEN,
                     );
                 }
@@ -426,7 +433,7 @@ async fn main() {
                         i as f32 * CELL_SIZE.y,
                         j as f32 * CELL_SIZE.x + CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y,
-                        WALL_WIDTH,
+                        *WALL_WIDTH,
                         DARKGREEN,
                     );
                 }
@@ -437,7 +444,7 @@ async fn main() {
                         i as f32 * CELL_SIZE.y + CELL_SIZE.y,
                         j as f32 * CELL_SIZE.x + CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y + CELL_SIZE.y,
-                        WALL_WIDTH,
+                        *WALL_WIDTH,
                         DARKGREEN,
                     );
                 }
