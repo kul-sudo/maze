@@ -2,8 +2,8 @@
 
 use macroquad::prelude::{
     clear_background, draw_circle, draw_line, is_key_down, is_key_pressed, is_mouse_button_down,
-    mouse_position, next_frame, screen_height, screen_width, set_fullscreen, u16vec2, vec2, BVec4,
-    Conf, KeyCode, MouseButton, U16Vec2, Vec2, BLACK, DARKGREEN, WHITE, YELLOW,
+    mouse_position, next_frame, screen_height, screen_width, set_fullscreen, u16vec2, vec2, Conf,
+    KeyCode, MouseButton, U16Vec2, Vec2, BLACK, DARKGREEN, WHITE, YELLOW,
 };
 
 #[cfg(feature = "mode1")]
@@ -19,7 +19,7 @@ const DEFAULT_CELLS_AREA: f32 = 53.0 * 30.0;
 
 const WALL_CHANGE_CHANCE: f32 = 1.0;
 
-const CELLS_ROWS: usize = 20;
+const CELLS_ROWS: usize = 3;
 
 static CELLS_COLUMNS: LazyLock<usize> =
     LazyLock::new(|| (CELLS_ROWS as f32 * (screen_width() / screen_height())) as usize);
@@ -40,7 +40,8 @@ static WALL_WIDTH: LazyLock<f32> =
 #[derive(Clone, Default, Debug)]
 struct Cell {
     visited: bool,
-    walls: BVec4,
+    /// Clockwise: North, East, South, West.
+    walls: [bool; 4],
 }
 
 #[derive(Clone, Debug)]
@@ -93,58 +94,18 @@ impl Cells {
 
         let neighbors = self.get_neighbors(random_pos);
         let filtered_neighbors = neighbors.iter().filter(|neighbor| {
-            // Exclude the neighbors that already have a wall depending on the position
-            !if random_pos.x > neighbor.x {
-                self.cells[random_pos.y as usize][random_pos.x as usize]
-                    .walls
-                    .x
-            } else if random_pos.x < neighbor.x {
-                self.cells[random_pos.y as usize][random_pos.x as usize]
-                    .walls
-                    .y
-            } else if random_pos.y > neighbor.y {
-                self.cells[random_pos.y as usize][random_pos.x as usize]
-                    .walls
-                    .w
-            } else {
-                self.cells[random_pos.y as usize][random_pos.x as usize]
-                    .walls
-                    .z
-            }
+            !self.cells[random_pos.y as usize][random_pos.x as usize].walls
+                [Cells::wall_from_pos(random_pos, **neighbor)]
         });
 
         let random_neighbor = *filtered_neighbors.choose(rng).unwrap();
 
         // Add the wall
-        if random_neighbor.y > random_pos.y {
-            self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
-                .walls
-                .w = true;
-            self.cells[random_pos.y as usize][random_pos.x as usize]
-                .walls
-                .z = true;
-        } else if random_neighbor.y < random_pos.y {
-            self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
-                .walls
-                .z = true;
-            self.cells[random_pos.y as usize][random_pos.x as usize]
-                .walls
-                .w = true;
-        } else if random_neighbor.x > random_pos.x {
-            self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
-                .walls
-                .x = true;
-            self.cells[random_pos.y as usize][random_pos.x as usize]
-                .walls
-                .y = true;
-        } else {
-            self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
-                .walls
-                .y = true;
-            self.cells[random_pos.y as usize][random_pos.x as usize]
-                .walls
-                .x = true;
-        }
+        self.cells[random_pos.y as usize][random_pos.x as usize].walls
+            [Cells::wall_from_pos(random_pos, random_neighbor)] = true;
+
+        self.cells[random_neighbor.y as usize][random_neighbor.x as usize].walls
+            [Cells::wall_from_pos(random_neighbor, random_pos)] = true;
 
         (random_pos, random_neighbor)
     }
@@ -162,24 +123,8 @@ impl Cells {
             let filtered_neighbors = neighbors
                 .iter()
                 .filter(|neighbor| {
-                    // Exclude the neighbors that already have a wall depending on the position
-                    if random_pos.x > neighbor.x {
-                        self.cells[random_pos.y as usize][random_pos.x as usize]
-                            .walls
-                            .x
-                    } else if random_pos.x < neighbor.x {
-                        self.cells[random_pos.y as usize][random_pos.x as usize]
-                            .walls
-                            .y
-                    } else if random_pos.y > neighbor.y {
-                        self.cells[random_pos.y as usize][random_pos.x as usize]
-                            .walls
-                            .w
-                    } else {
-                        self.cells[random_pos.y as usize][random_pos.x as usize]
-                            .walls
-                            .z
-                    }
+                    self.cells[random_pos.y as usize][random_pos.x as usize].walls
+                        [Cells::wall_from_pos(random_pos, **neighbor)]
                 })
                 .collect::<Vec<_>>();
 
@@ -191,54 +136,22 @@ impl Cells {
 
             let path = self.get_path(random_pos, *random_neighbor);
 
-            if random_neighbor.y > random_pos.y {
-                self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
-                    .walls
-                    .w = false;
-                self.cells[random_pos.y as usize][random_pos.x as usize]
-                    .walls
-                    .z = false;
-            } else if random_neighbor.y < random_pos.y {
-                self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
-                    .walls
-                    .z = false;
-                self.cells[random_pos.y as usize][random_pos.x as usize]
-                    .walls
-                    .w = false;
-            } else if random_neighbor.x > random_pos.x {
-                self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
-                    .walls
-                    .x = false;
-                self.cells[random_pos.y as usize][random_pos.x as usize]
-                    .walls
-                    .y = false;
-            } else {
-                self.cells[random_neighbor.y as usize][random_neighbor.x as usize]
-                    .walls
-                    .y = false;
-                self.cells[random_pos.y as usize][random_pos.x as usize]
-                    .walls
-                    .x = false;
-            }
+            self.cells[random_pos.y as usize][random_pos.x as usize].walls
+                [Cells::wall_from_pos(random_pos, *random_neighbor)] = false;
+
+            self.cells[random_neighbor.y as usize][random_neighbor.x as usize].walls
+                [Cells::wall_from_pos(*random_neighbor, random_pos)] = false;
 
             let lhs = rng.gen_range(0..path.len() - 1);
 
             let lhs_cell = path[lhs];
             let rhs_cell = path[lhs + 1];
 
-            if lhs_cell.y > rhs_cell.y {
-                self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls.w = true;
-                self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls.z = true;
-            } else if lhs_cell.y < rhs_cell.y {
-                self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls.z = true;
-                self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls.w = true;
-            } else if lhs_cell.x > rhs_cell.x {
-                self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls.x = true;
-                self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls.y = true;
-            } else {
-                self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls.y = true;
-                self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls.x = true;
-            }
+            self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls
+                [Cells::wall_from_pos(lhs_cell, rhs_cell)] = true;
+
+            self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls
+                [Cells::wall_from_pos(rhs_cell, lhs_cell)] = true;
 
             break;
         }
@@ -284,20 +197,17 @@ impl Cells {
         lake_cells.insert(pos);
 
         for neighbor in self.get_neighbors(pos) {
-            if if pos.x > neighbor.x {
-                self.cells[pos.y as usize][pos.x as usize].walls.x
-            } else if pos.x < neighbor.x {
-                self.cells[pos.y as usize][pos.x as usize].walls.y
-            } else if pos.y > neighbor.y {
-                self.cells[pos.y as usize][pos.x as usize].walls.w
-            } else {
-                self.cells[pos.y as usize][pos.x as usize].walls.z
-            } {
+            if self.cells[pos.y as usize][pos.x as usize].walls[Cells::wall_from_pos(pos, neighbor)]
+            {
                 continue;
             }
 
             self.lake_recursion(neighbor, lake_cells);
         }
+    }
+
+    fn wall_from_pos(lhs: U16Vec2, rhs: U16Vec2) -> usize {
+        2 * ((lhs.y < rhs.y) as usize + (lhs.x > rhs.x) as usize) + (lhs.x != rhs.x) as usize
     }
 
     /// The function builds the maze.
@@ -312,19 +222,11 @@ impl Cells {
                 continue;
             }
 
-            if neighbor.y > pos.y {
-                self.cells[neighbor.y as usize][neighbor.x as usize].walls.w = false;
-                self.cells[pos.y as usize][pos.x as usize].walls.z = false;
-            } else if neighbor.y < pos.y {
-                self.cells[neighbor.y as usize][neighbor.x as usize].walls.z = false;
-                self.cells[pos.y as usize][pos.x as usize].walls.w = false;
-            } else if neighbor.x > pos.x {
-                self.cells[neighbor.y as usize][neighbor.x as usize].walls.x = false;
-                self.cells[pos.y as usize][pos.x as usize].walls.y = false;
-            } else {
-                self.cells[neighbor.y as usize][neighbor.x as usize].walls.y = false;
-                self.cells[pos.y as usize][pos.x as usize].walls.x = false;
-            }
+            self.cells[pos.y as usize][pos.x as usize].walls[Cells::wall_from_pos(pos, neighbor)] =
+                false;
+
+            self.cells[neighbor.y as usize][neighbor.x as usize].walls
+                [Cells::wall_from_pos(neighbor, pos)] = false;
 
             self.build(neighbor, rng);
         }
@@ -354,15 +256,8 @@ impl Cells {
         have_been_here.insert(lhs);
 
         for neighbor in self.get_neighbors(lhs) {
-            if if lhs.x > neighbor.x {
-                self.cells[lhs.y as usize][lhs.x as usize].walls.x
-            } else if lhs.x < neighbor.x {
-                self.cells[lhs.y as usize][lhs.x as usize].walls.y
-            } else if lhs.y > neighbor.y {
-                self.cells[lhs.y as usize][lhs.x as usize].walls.w
-            } else {
-                self.cells[lhs.y as usize][lhs.x as usize].walls.z
-            } {
+            if self.cells[lhs.y as usize][lhs.x as usize].walls[Cells::wall_from_pos(lhs, neighbor)]
+            {
                 continue;
             }
 
@@ -385,19 +280,11 @@ impl Cells {
 
         let (pos, neighbor) = shore.iter().choose(rng).unwrap();
 
-        if neighbor.y > pos.y {
-            self.cells[neighbor.y as usize][neighbor.x as usize].walls.w = false;
-            self.cells[pos.y as usize][pos.x as usize].walls.z = false;
-        } else if neighbor.y < pos.y {
-            self.cells[neighbor.y as usize][neighbor.x as usize].walls.z = false;
-            self.cells[pos.y as usize][pos.x as usize].walls.w = false;
-        } else if neighbor.x > pos.x {
-            self.cells[neighbor.y as usize][neighbor.x as usize].walls.x = false;
-            self.cells[pos.y as usize][pos.x as usize].walls.y = false;
-        } else {
-            self.cells[neighbor.y as usize][neighbor.x as usize].walls.y = false;
-            self.cells[pos.y as usize][pos.x as usize].walls.x = false;
-        }
+        self.cells[pos.y as usize][pos.x as usize].walls[Cells::wall_from_pos(*pos, *neighbor)] =
+            false;
+
+        self.cells[neighbor.y as usize][neighbor.x as usize].walls
+            [Cells::wall_from_pos(*neighbor, *pos)] = false;
     }
 }
 
@@ -421,7 +308,7 @@ async fn main() {
             vec![
                 Cell {
                     visited: false,
-                    walls: BVec4::TRUE
+                    walls: [true, true, true, true]
                 };
                 *CELLS_COLUMNS
             ];
@@ -441,36 +328,28 @@ async fn main() {
         // Interactions
         if (is_key_down(KeyCode::A) || is_key_down(KeyCode::Left))
             && player.pos.x > 0
-            && !cells.cells[player.pos.y as usize][player.pos.x as usize]
-                .walls
-                .x
+            && !cells.cells[player.pos.y as usize][player.pos.x as usize].walls[3]
         {
             player.pos.x -= 1;
         }
 
         if (is_key_down(KeyCode::D) || is_key_down(KeyCode::Right))
             && player.pos.x < *CELLS_COLUMNS as u16 - 1
-            && !cells.cells[player.pos.y as usize][player.pos.x as usize]
-                .walls
-                .y
+            && !cells.cells[player.pos.y as usize][player.pos.x as usize].walls[1]
         {
             player.pos.x += 1;
         }
 
         if (is_key_down(KeyCode::W) || is_key_down(KeyCode::Up))
             && player.pos.y > 0
-            && !cells.cells[player.pos.y as usize][player.pos.x as usize]
-                .walls
-                .w
+            && !cells.cells[player.pos.y as usize][player.pos.x as usize].walls[0]
         {
             player.pos.y -= 1;
         }
 
         if (is_key_down(KeyCode::S) || is_key_down(KeyCode::Down))
             && player.pos.y < CELLS_ROWS as u16 - 1
-            && !cells.cells[player.pos.y as usize][player.pos.x as usize]
-                .walls
-                .z
+            && !cells.cells[player.pos.y as usize][player.pos.x as usize].walls[2]
         {
             player.pos.y += 1;
         }
@@ -481,7 +360,7 @@ async fn main() {
                     vec![
                         Cell {
                             visited: false,
-                            walls: BVec4::TRUE
+                            walls: [true, true, true, true]
                         };
                         *CELLS_COLUMNS
                     ];
@@ -508,7 +387,7 @@ async fn main() {
             for j in 0..cells.cells[i].len() {
                 let cell = &mut cells.cells[i][j];
 
-                if cell.walls.x {
+                if cell.walls[3] {
                     draw_line(
                         j as f32 * CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y,
@@ -519,7 +398,7 @@ async fn main() {
                     );
                 }
 
-                if cell.walls.y {
+                if cell.walls[1] {
                     draw_line(
                         j as f32 * CELL_SIZE.x + CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y,
@@ -530,7 +409,7 @@ async fn main() {
                     );
                 }
 
-                if cell.walls.w {
+                if cell.walls[0] {
                     draw_line(
                         j as f32 * CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y,
@@ -541,7 +420,7 @@ async fn main() {
                     );
                 }
 
-                if cell.walls.z {
+                if cell.walls[2] {
                     draw_line(
                         j as f32 * CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y + CELL_SIZE.y,
