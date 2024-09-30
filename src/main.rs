@@ -23,7 +23,7 @@ const DEFAULT_CELLS_AREA: f32 = 53.0 * 30.0;
 
 const WALL_CHANGE_CHANCE: f32 = 1.0;
 
-const CELLS_ROWS: usize = 50;
+const CELLS_ROWS: usize = 40;
 
 static CELLS_COLUMNS: LazyLock<usize> =
     LazyLock::new(|| (CELLS_ROWS as f32 * (screen_width() / screen_height())) as usize);
@@ -39,7 +39,7 @@ static CELLS_AREA: LazyLock<f32> = LazyLock::new(|| *CELLS_COLUMNS as f32 * CELL
 
 const WALL_WIDTH_CONST: f32 = 5.0;
 static WALL_WIDTH: LazyLock<f32> =
-    LazyLock::new(|| WALL_WIDTH_CONST / (*CELLS_AREA / DEFAULT_CELLS_AREA).powf(1.0 / 3.0));
+    LazyLock::new(|| WALL_WIDTH_CONST / (*CELLS_AREA / DEFAULT_CELLS_AREA).powf(1.0 / 4.0));
 
 #[derive(Clone, Default, Debug)]
 struct Cell {
@@ -163,10 +163,14 @@ impl Cells {
 
     #[cfg(feature = "mode1")]
     /// The function collects the neighbors on the border of a self.lake().
-    fn collect_lake_shore(&self, new_wall: &(U16Vec2, U16Vec2)) -> HashSet<(U16Vec2, U16Vec2)> {
+    fn collect_lake_shore(
+        &self,
+        new_wall: &(U16Vec2, U16Vec2),
+        rng: &mut StdRng,
+    ) -> HashSet<(U16Vec2, U16Vec2)> {
         let mut lake_shore = HashSet::new();
 
-        let lake = self.lake();
+        let lake = self.lake(rng);
 
         for pos in lake.iter() {
             let neighbors = self.get_neighbors(*pos);
@@ -184,10 +188,16 @@ impl Cells {
     #[cfg(feature = "mode1")]
     /// The function gets the cells of one of the 2 possible lakes of a non-perfect maze.
     /// It doesn't matter which one to get.
-    fn lake(&self) -> HashSet<U16Vec2> {
+    fn lake(&self, rng: &mut StdRng) -> HashSet<U16Vec2> {
         let mut lake_cells = HashSet::new();
 
-        self.lake_recursion(U16Vec2::ZERO, &mut lake_cells);
+        self.lake_recursion(
+            u16vec2(
+                rng.gen_range(0..*CELLS_COLUMNS as u16),
+                rng.gen_range(0..CELLS_ROWS as u16),
+            ),
+            &mut lake_cells,
+        );
 
         lake_cells
     }
@@ -264,15 +274,14 @@ impl Cells {
         have_been_here.insert(lhs);
 
         for neighbor in self.get_neighbors(lhs) {
-            if self.cells[lhs.y as usize][lhs.x as usize].walls[Cells::wall_from_pos(lhs, neighbor)]
+            if !self.cells[lhs.y as usize][lhs.x as usize].walls
+                [Cells::wall_from_pos(lhs, neighbor)]
             {
-                continue;
-            }
+                if let Some(mut path) = self.recursive_get_path(neighbor, rhs, have_been_here) {
+                    path.push_front(lhs);
 
-            if let Some(mut path) = self.recursive_get_path(neighbor, rhs, have_been_here) {
-                path.push_front(lhs);
-
-                return Some(path);
+                    return Some(path);
+                }
             }
         }
 
@@ -283,7 +292,7 @@ impl Cells {
     /// The function combines all the operations needed for changing a wall.
     fn change_wall(&mut self, rng: &mut StdRng) {
         let new_wall = self.add_wall(rng);
-        let shore = self.collect_lake_shore(&new_wall);
+        let shore = self.collect_lake_shore(&new_wall, rng);
 
         let (pos, neighbor) = shore.iter().choose(rng).unwrap();
 
