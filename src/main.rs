@@ -13,13 +13,17 @@ use rand::prelude::{IteratorRandom, SliceRandom};
 use rand::prelude::SliceRandom;
 
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use std::{collections::HashSet, sync::LazyLock, time::Duration};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::LazyLock,
+    time::Duration,
+};
 
 const DEFAULT_CELLS_AREA: f32 = 53.0 * 30.0;
 
 const WALL_CHANGE_CHANCE: f32 = 1.0;
 
-const CELLS_ROWS: usize = 100;
+const CELLS_ROWS: usize = 50;
 
 static CELLS_COLUMNS: LazyLock<usize> =
     LazyLock::new(|| (CELLS_ROWS as f32 * (screen_width() / screen_height())) as usize);
@@ -236,7 +240,7 @@ impl Cells {
         }
     }
 
-    fn get_path(&self, lhs: U16Vec2, rhs: U16Vec2) -> Vec<U16Vec2> {
+    fn get_path(&self, lhs: U16Vec2, rhs: U16Vec2) -> VecDeque<U16Vec2> {
         let mut have_been_here = HashSet::new();
 
         self.recursive_get_path(lhs, rhs, &mut have_been_here)
@@ -248,9 +252,9 @@ impl Cells {
         lhs: U16Vec2,
         rhs: U16Vec2,
         have_been_here: &mut HashSet<U16Vec2>,
-    ) -> Option<Vec<U16Vec2>> {
+    ) -> Option<VecDeque<U16Vec2>> {
         if lhs == rhs {
-            return Some(Vec::from([lhs]));
+            return Some(VecDeque::from([lhs]));
         }
 
         if have_been_here.contains(&lhs) {
@@ -265,11 +269,10 @@ impl Cells {
                 continue;
             }
 
-            if let Some(path) = self.recursive_get_path(neighbor, rhs, have_been_here) {
-                let mut to_return = Vec::from([lhs]);
-                to_return.extend(path);
+            if let Some(mut path) = self.recursive_get_path(neighbor, rhs, have_been_here) {
+                path.push_front(lhs);
 
-                return Some(to_return);
+                return Some(path);
             }
         }
 
@@ -389,12 +392,12 @@ async fn main() {
             for j in 0..cells.cells[i].len() {
                 let cell = &mut cells.cells[i][j];
 
-                if cell.walls[3] {
+                if cell.walls[0] {
                     draw_line(
                         j as f32 * CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y,
-                        j as f32 * CELL_SIZE.x,
-                        i as f32 * CELL_SIZE.y + CELL_SIZE.y,
+                        j as f32 * CELL_SIZE.x + CELL_SIZE.x,
+                        i as f32 * CELL_SIZE.y,
                         *WALL_WIDTH,
                         DARKGREEN,
                     );
@@ -411,22 +414,22 @@ async fn main() {
                     );
                 }
 
-                if cell.walls[0] {
-                    draw_line(
-                        j as f32 * CELL_SIZE.x,
-                        i as f32 * CELL_SIZE.y,
-                        j as f32 * CELL_SIZE.x + CELL_SIZE.x,
-                        i as f32 * CELL_SIZE.y,
-                        *WALL_WIDTH,
-                        DARKGREEN,
-                    );
-                }
-
                 if cell.walls[2] {
                     draw_line(
                         j as f32 * CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y + CELL_SIZE.y,
                         j as f32 * CELL_SIZE.x + CELL_SIZE.x,
+                        i as f32 * CELL_SIZE.y + CELL_SIZE.y,
+                        *WALL_WIDTH,
+                        DARKGREEN,
+                    );
+                }
+
+                if cell.walls[3] {
+                    draw_line(
+                        j as f32 * CELL_SIZE.x,
+                        i as f32 * CELL_SIZE.y,
+                        j as f32 * CELL_SIZE.x,
                         i as f32 * CELL_SIZE.y + CELL_SIZE.y,
                         *WALL_WIDTH,
                         DARKGREEN,
