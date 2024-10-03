@@ -88,6 +88,7 @@ impl Cells {
         neighbors
     }
 
+    // Mode 1.
     #[cfg(feature = "mode1")]
     /// The function adds a new wall between 2 random cells.
     fn add_wall(&mut self, rng: &mut StdRng) -> (U16Vec2, U16Vec2) {
@@ -110,55 +111,6 @@ impl Cells {
         self.cells[random_neighbor.y as usize][random_neighbor.x as usize].walls[rhs_wall] = true;
 
         (random_pos, random_neighbor)
-    }
-
-    #[cfg(feature = "mode2")]
-    /// The function adds a new wall between 2 random cells.
-    fn change_wall(&mut self, rng: &mut StdRng) {
-        loop {
-            let random_pos = u16vec2(
-                rng.gen_range(0..*CELLS_COLUMNS as u16),
-                rng.gen_range(0..CELLS_ROWS as u16),
-            );
-
-            let neighbors = self.get_neighbors(random_pos);
-            let filtered_neighbors = neighbors
-                .iter()
-                .filter(|neighbor| {
-                    self.cells[random_pos.y as usize][random_pos.x as usize].walls
-                        [Cells::wall_from_pos(random_pos, **neighbor)]
-                })
-                .collect::<Vec<_>>();
-
-            if filtered_neighbors.is_empty() {
-                continue;
-            }
-
-            let random_neighbor = *filtered_neighbors.choose(rng).unwrap();
-
-            let path = self.get_path(random_pos, *random_neighbor);
-
-            {
-                let (lhs_wall, rhs_wall) =
-                    Cells::mutual_walls_from_pos(random_pos, *random_neighbor);
-                self.cells[random_pos.y as usize][random_pos.x as usize].walls[lhs_wall] = false;
-                self.cells[random_neighbor.y as usize][random_neighbor.x as usize].walls
-                    [rhs_wall] = false;
-            }
-
-            let lhs = rng.gen_range(0..path.len() - 1);
-
-            let lhs_cell = path[lhs];
-            let rhs_cell = path[lhs + 1];
-
-            {
-                let (lhs_wall, rhs_wall) = Cells::mutual_walls_from_pos(lhs_cell, rhs_cell);
-                self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls[lhs_wall] = true;
-                self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls[rhs_wall] = true;
-            }
-
-            break;
-        }
     }
 
     #[cfg(feature = "mode1")]
@@ -218,6 +170,19 @@ impl Cells {
 
             self.lake_recursion(neighbor, lake_cells);
         }
+    }
+
+    #[cfg(feature = "mode1")]
+    /// The function combines all the operations needed for changing a wall.
+    fn change_wall(&mut self, rng: &mut StdRng) {
+        let new_wall = self.add_wall(rng);
+        let shore = self.collect_lake_shore(&new_wall, rng);
+
+        let (pos, neighbor) = shore.iter().choose(rng).unwrap();
+
+        let (lhs_wall, rhs_wall) = Cells::mutual_walls_from_pos(*pos, *neighbor);
+        self.cells[pos.y as usize][pos.x as usize].walls[lhs_wall] = false;
+        self.cells[neighbor.y as usize][neighbor.x as usize].walls[rhs_wall] = false;
     }
 
     fn wall_from_pos(lhs: U16Vec2, rhs: U16Vec2) -> usize {
@@ -288,17 +253,54 @@ impl Cells {
         None
     }
 
-    #[cfg(feature = "mode1")]
-    /// The function combines all the operations needed for changing a wall.
+    // Mode 2
+    #[cfg(feature = "mode2")]
+    /// The function adds a new wall between 2 random cells.
     fn change_wall(&mut self, rng: &mut StdRng) {
-        let new_wall = self.add_wall(rng);
-        let shore = self.collect_lake_shore(&new_wall, rng);
+        loop {
+            let random_pos = u16vec2(
+                rng.gen_range(0..*CELLS_COLUMNS as u16),
+                rng.gen_range(0..CELLS_ROWS as u16),
+            );
 
-        let (pos, neighbor) = shore.iter().choose(rng).unwrap();
+            let neighbors = self.get_neighbors(random_pos);
+            let filtered_neighbors = neighbors
+                .iter()
+                .filter(|neighbor| {
+                    self.cells[random_pos.y as usize][random_pos.x as usize].walls
+                        [Cells::wall_from_pos(random_pos, **neighbor)]
+                })
+                .collect::<Vec<_>>();
 
-        let (lhs_wall, rhs_wall) = Cells::mutual_walls_from_pos(*pos, *neighbor);
-        self.cells[pos.y as usize][pos.x as usize].walls[lhs_wall] = false;
-        self.cells[neighbor.y as usize][neighbor.x as usize].walls[rhs_wall] = false;
+            if filtered_neighbors.is_empty() {
+                continue;
+            }
+
+            let random_neighbor = *filtered_neighbors.choose(rng).unwrap();
+
+            let path = self.get_path(random_pos, *random_neighbor);
+
+            {
+                let (lhs_wall, rhs_wall) =
+                    Cells::mutual_walls_from_pos(random_pos, *random_neighbor);
+                self.cells[random_pos.y as usize][random_pos.x as usize].walls[lhs_wall] = false;
+                self.cells[random_neighbor.y as usize][random_neighbor.x as usize].walls
+                    [rhs_wall] = false;
+            }
+
+            let lhs = rng.gen_range(0..path.len() - 1);
+
+            let lhs_cell = path[lhs];
+            let rhs_cell = path[lhs + 1];
+
+            {
+                let (lhs_wall, rhs_wall) = Cells::mutual_walls_from_pos(lhs_cell, rhs_cell);
+                self.cells[lhs_cell.y as usize][lhs_cell.x as usize].walls[lhs_wall] = true;
+                self.cells[rhs_cell.y as usize][rhs_cell.x as usize].walls[rhs_wall] = true;
+            }
+
+            break;
+        }
     }
 }
 
@@ -340,11 +342,11 @@ async fn main() {
 
     loop {
         // Interactions
-        if (is_key_down(KeyCode::A) || is_key_down(KeyCode::Left))
-            && player.pos.x > 0
-            && !cells.cells[player.pos.y as usize][player.pos.x as usize].walls[3]
+        if (is_key_down(KeyCode::W) || is_key_down(KeyCode::Up))
+            && player.pos.y > 0
+            && !cells.cells[player.pos.y as usize][player.pos.x as usize].walls[0]
         {
-            player.pos.x -= 1;
+            player.pos.y -= 1;
         }
 
         if (is_key_down(KeyCode::D) || is_key_down(KeyCode::Right))
@@ -354,18 +356,18 @@ async fn main() {
             player.pos.x += 1;
         }
 
-        if (is_key_down(KeyCode::W) || is_key_down(KeyCode::Up))
-            && player.pos.y > 0
-            && !cells.cells[player.pos.y as usize][player.pos.x as usize].walls[0]
-        {
-            player.pos.y -= 1;
-        }
-
         if (is_key_down(KeyCode::S) || is_key_down(KeyCode::Down))
             && player.pos.y < CELLS_ROWS as u16 - 1
             && !cells.cells[player.pos.y as usize][player.pos.x as usize].walls[2]
         {
             player.pos.y += 1;
+        }
+
+        if (is_key_down(KeyCode::A) || is_key_down(KeyCode::Left))
+            && player.pos.x > 0
+            && !cells.cells[player.pos.y as usize][player.pos.x as usize].walls[3]
+        {
+            player.pos.x -= 1;
         }
 
         if is_key_pressed(KeyCode::Space) {
@@ -396,9 +398,22 @@ async fn main() {
             player.pos = u16vec2((x / CELL_SIZE.x) as u16, (y / CELL_SIZE.y) as u16);
         }
 
+        for (pos_index, pos) in path.iter().enumerate() {
+            if let Some(next_pos) = path.get(pos_index + 1) {
+                draw_line(
+                    pos.x as f32 * CELL_SIZE.x + CELL_SIZE.x / 2.0,
+                    pos.y as f32 * CELL_SIZE.y + CELL_SIZE.y / 2.0,
+                    next_pos.x as f32 * CELL_SIZE.x + CELL_SIZE.x / 2.0,
+                    next_pos.y as f32 * CELL_SIZE.y + CELL_SIZE.y / 2.0,
+                    *WALL_WIDTH,
+                    WHITE,
+                )
+            }
+        }
+
         // Drawing
-        for i in 0..cells.cells.len() {
-            for j in 0..cells.cells[i].len() {
+        for i in 0..CELLS_ROWS {
+            for j in 0..*CELLS_COLUMNS {
                 let cell = &mut cells.cells[i][j];
 
                 if cell.walls[0] {
@@ -453,19 +468,6 @@ async fn main() {
             CELL_SIZE.x * 0.4,
             YELLOW,
         );
-
-        for (pos_index, pos) in path.iter().enumerate() {
-            if let Some(next_pos) = path.get(pos_index + 1) {
-                draw_line(
-                    pos.x as f32 * CELL_SIZE.x + CELL_SIZE.x / 2.0,
-                    pos.y as f32 * CELL_SIZE.y + CELL_SIZE.y / 2.0,
-                    next_pos.x as f32 * CELL_SIZE.x + CELL_SIZE.x / 2.0,
-                    next_pos.y as f32 * CELL_SIZE.y + CELL_SIZE.y / 2.0,
-                    *WALL_WIDTH,
-                    WHITE,
-                )
-            }
-        }
 
         next_frame().await;
 
