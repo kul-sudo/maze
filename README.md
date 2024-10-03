@@ -1,4 +1,4 @@
-# How run?
+# How to run?
 ## Mode 1
 `cargo run --release --features mode1`
 
