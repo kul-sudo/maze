@@ -324,7 +324,7 @@ async fn main() {
             vec![
                 Cell {
                     visited: false,
-                    walls: [true, true, true, true]
+                    walls: [true; 4]
                 };
                 *CELLS_COLUMNS
             ];
@@ -376,7 +376,7 @@ async fn main() {
                     vec![
                         Cell {
                             visited: false,
-                            walls: [true, true, true, true]
+                            walls: [true; 4]
                         };
                         *CELLS_COLUMNS
                     ];
