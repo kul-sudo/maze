@@ -306,8 +306,6 @@ impl Cells {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    println!("{:?} {:?}", *CELLS_COLUMNS, CELLS_ROWS);
-
     if cfg!(target_os = "linux") {
         set_fullscreen(true);
         std::thread::sleep(Duration::from_secs(1));
