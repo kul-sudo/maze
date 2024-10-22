@@ -23,7 +23,7 @@ const DEFAULT_CELLS_AREA: f32 = 53.0 * 30.0;
 
 const WALL_CHANGE_CHANCE: f32 = 1.0;
 
-const CELLS_ROWS: usize = 40;
+const CELLS_ROWS: usize = 150;
 
 static CELLS_COLUMNS: LazyLock<usize> =
     LazyLock::new(|| (CELLS_ROWS as f32 * (screen_width() / screen_height())) as usize);
@@ -117,7 +117,7 @@ impl Cells {
     /// The function collects the neighbors on the border of a self.lake().
     fn collect_lake_shore(
         &self,
-        new_wall: &(U16Vec2, U16Vec2),
+        new_wall: (U16Vec2, U16Vec2),
         rng: &mut StdRng,
     ) -> HashSet<(U16Vec2, U16Vec2)> {
         let mut lake_shore = HashSet::new();
@@ -128,7 +128,7 @@ impl Cells {
             let neighbors = self.get_neighbors(*pos);
 
             for neighbor in neighbors {
-                if *new_wall != (*pos, neighbor) && !lake.contains(&neighbor) {
+                if new_wall != (*pos, neighbor) && !lake.contains(&neighbor) {
                     lake_shore.insert((*pos, neighbor));
                 }
             }
@@ -176,7 +176,7 @@ impl Cells {
     /// The function combines all the operations needed for changing a wall.
     fn change_wall(&mut self, rng: &mut StdRng) {
         let new_wall = self.add_wall(rng);
-        let shore = self.collect_lake_shore(&new_wall, rng);
+        let shore = self.collect_lake_shore(new_wall, rng);
 
         let (pos, neighbor) = shore.iter().choose(rng).unwrap();
 
@@ -306,6 +306,8 @@ impl Cells {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    println!("{:?} {:?}", *CELLS_COLUMNS, CELLS_ROWS);
+
     if cfg!(target_os = "linux") {
         set_fullscreen(true);
         std::thread::sleep(Duration::from_secs(1));
